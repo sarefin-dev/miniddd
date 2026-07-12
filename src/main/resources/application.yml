@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: miniddd
+  datasource:
+    url: jdbc:postgresql://localhost:5432/miniddd
+    username: miniddd
+    password: miniddd
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+  kafka:
+    bootstrap-servers: localhost:9092
