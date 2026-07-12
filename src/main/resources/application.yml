@@ -2,12 +2,16 @@ spring:
   application:
     name: miniddd
   datasource:
-    url: jdbc:postgresql://localhost:5432/miniddd
-    username: miniddd
-    password: miniddd
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/miniddd}
+    username: ${DB_USERNAME:miniddd}
+    password: ${DB_PASSWORD:miniddd}
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: update
   kafka:
-    bootstrap-servers: localhost:29092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+
+miniddd:
+  outbox:
+    polling-interval-ms: 2000

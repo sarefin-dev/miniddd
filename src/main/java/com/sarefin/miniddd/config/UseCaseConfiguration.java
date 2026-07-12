@@ -2,6 +2,7 @@ package com.sarefin.miniddd.config;
 
 import com.sarefin.miniddd.application.order.ConfirmPaymentUseCase;
 import com.sarefin.miniddd.application.order.CreateOrderUseCase;
+import com.sarefin.miniddd.application.order.GetOrderUseCase;
 import com.sarefin.miniddd.port.out.EventPublisherPort;
 import com.sarefin.miniddd.port.out.OrderRepositoryPort;
 import com.sarefin.miniddd.port.out.PaymentGatewayPort;
@@ -19,6 +20,11 @@ public class UseCaseConfiguration {
     @Bean
     public CreateOrderUseCase createOrderUseCase(OrderRepositoryPort orderRepository) {
         return new CreateOrderUseCase(orderRepository);
+    }
+
+    @Bean
+    public GetOrderUseCase getOrderUseCase(OrderRepositoryPort orderRepository) {
+        return new GetOrderUseCase(orderRepository);
     }
 
     @Bean

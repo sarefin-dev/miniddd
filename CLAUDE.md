@@ -23,7 +23,7 @@ Requires JDK 25. Use the Maven Wrapper (`mvnw`/`mvnw.cmd`) — Maven is not requ
 ./mvnw compile                 # compile only
 ./mvnw package                 # build the jar (skips nothing; runs tests)
 ./mvnw package -DskipTests     # build without running tests
-./mvnw spring-boot:run          # run the app (needs Postgres on 5432 and Kafka on 9092, see below)
+./mvnw spring-boot:run          # run the app (needs Postgres on 5432 and Kafka on 29092, see below)
 ```
 
 The project targets `java.version 25` (see `pom.xml`). This requires Spring Boot **3.5.3+** — Spring Boot
@@ -38,8 +38,10 @@ paths across drive roots. Point `TEMP`/`TMP` at a folder on the same drive as th
 invocation and re-run.
 
 Local infra the app expects at runtime (see `src/main/resources/application.yml`): Postgres at
-`localhost:5432/miniddd` (user/password `miniddd`/`miniddd`) and Kafka at `localhost:9092`. Nothing in the repo
+`localhost:5432/miniddd` (user/password `miniddd`/`miniddd`) and Kafka at `localhost:29092`. Nothing in the repo
 currently provisions these (no docker-compose yet) — spin them up separately, or ask before adding one.
+All four values (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `KAFKA_BOOTSTRAP_SERVERS`) can be overridden via
+environment variables; the defaults above are what's used when they're unset.
 
 ## Architecture: the dependency rule
 
@@ -83,8 +85,12 @@ returns true. No routing/registry port was introduced — the port itself carrie
 `EventPublisherPort.publish(event)` does not call Kafka directly. `OutboxEventPublisherAdapter` writes the
 event to an `outbox_event` table row in the same transaction as the order save (both happen inside
 `ConfirmPaymentUseCase`'s `transactionPort.runInTransaction(...)` block). A separate component,
-`OutboxRelay` (`@Scheduled`, polls every 2s), reads unpublished rows and sends them to Kafka
-(`order.confirmed` for `OrderConfirmed`, `order.payment-failed` for `PaymentFailed`), then marks them published.
+`OutboxRelay` (`@Scheduled`, polls every `miniddd.outbox.polling-interval-ms`, default 2000ms), reads unpublished
+rows and sends them to Kafka (`order.confirmed` for `OrderConfirmed`, `order.payment-failed` for `PaymentFailed`).
+Each row is sent and marked published individually: `KafkaTemplate.send()` returns a future, so the relay blocks
+on it (`.get(5, TimeUnit.SECONDS)`) before saving `published = true` — if that were skipped, a transaction could
+commit the "published" flag before the send actually reached the broker, permanently losing the event on a
+Kafka outage. On a send failure the row is left `published = false` and retried on the next poll.
 
 This is why `ConfirmPaymentUseCase.confirmPayment()` calls the payment gateway *before* opening the
 transaction: an external HTTP call to Stripe/bKash must never happen while a DB transaction is held open.
@@ -95,10 +101,10 @@ transaction: an external HTTP call to Stripe/bKash must never happen while a DB 
 |---|---|---|
 | `domain.order` | Domain | `Order` aggregate, `Money`/`OrderId` value objects, `OrderStatus`/`PaymentMethod` enums |
 | `domain.order.event` | Domain | `DomainEvent`, `OrderConfirmed`, `PaymentFailed` |
-| `application.order` | Application | `CreateOrderUseCase`, `ConfirmPaymentUseCase` |
-| `port.in` | Port | `CreateOrderPort`, `ConfirmPaymentPort` — driven side, adapters call these |
+| `application.order` | Application | `CreateOrderUseCase`, `ConfirmPaymentUseCase`, `GetOrderUseCase` |
+| `port.in` | Port | `CreateOrderPort`, `ConfirmPaymentPort`, `GetOrderPort` — driven side, adapters call these |
 | `port.out` | Port | `OrderRepositoryPort`, `PaymentGatewayPort`, `EventPublisherPort`, `TransactionPort` — driving side, adapters implement these |
-| `adapter.in.web` | Adapter | `OrderController` — depends only on `port.in` |
+| `adapter.in.web` | Adapter | `OrderController`, `GlobalExceptionHandler` — depend only on `port.in` (and, for the handler, on the exception types themselves) |
 | `adapter.out.payment.{stripe,bkash}` | Adapter | Gateway adapters |
 | `adapter.out.persistence` | Adapter | JPA entity + Spring Data repo + `OrderRepositoryAdapter` (domain↔entity mapping) |
 | `adapter.out.messaging` | Adapter | Outbox entity/repo, `OutboxEventPublisherAdapter`, `OutboxRelay` |

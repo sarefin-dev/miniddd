@@ -138,6 +138,9 @@ Running the app (`./mvnw spring-boot:run`) additionally requires:
 - Postgres reachable at `localhost:5432`, database `miniddd`, user/password `miniddd`/`miniddd`
 - Kafka reachable at `localhost:29092`
 
+These are just defaults — override any of them with the `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, or
+`KAFKA_BOOTSTRAP_SERVERS` environment variables without touching `application.yml`.
+
 This repo has no docker-compose of its own; it's designed to run against a shared local infra stack (Postgres,
 Kafka, Redis, etc. in one compose file) rather than spinning up its own single-purpose containers. If you're
 using a similar shared stack, note two things this project does **not** provision for you:
@@ -163,6 +166,14 @@ POST /api/orders
 ```
 → `201 Created` with `{ "orderId": "..." }`
 
+**Get an order**
+
+```
+GET /api/orders/{orderId}
+```
+→ `200 OK` with `{ "orderId", "customerId", "amount", "currency", "status", "paymentMethod" }`, or `404` if it
+doesn't exist.
+
 **Confirm payment**
 
 ```
@@ -173,5 +184,5 @@ POST /api/orders/{orderId}/confirm-payment
 }
 ```
 → `202 Accepted`. Confirmation involves a call to an external gateway, so the response doesn't carry a
-synchronous success/failure verdict — check the order's status afterward, or consume the `order.confirmed` /
-`order.payment-failed` Kafka topics.
+synchronous success/failure verdict — poll `GET /api/orders/{orderId}` afterward, or consume the
+`order.confirmed` / `order.payment-failed` Kafka topics.

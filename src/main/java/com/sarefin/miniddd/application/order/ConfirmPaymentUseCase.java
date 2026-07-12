@@ -10,12 +10,16 @@ import com.sarefin.miniddd.port.out.OrderRepositoryPort;
 import com.sarefin.miniddd.port.out.PaymentGatewayPort;
 import com.sarefin.miniddd.port.out.PaymentGatewayResult;
 import com.sarefin.miniddd.port.out.TransactionPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
 // Application — orchestrates the "confirm payment" flow across three interchangeable gateways, all converging on
 // the same order.confirmed event regardless of which one was used.
 public class ConfirmPaymentUseCase implements ConfirmPaymentPort {
+
+    private static final Logger log = LoggerFactory.getLogger(ConfirmPaymentUseCase.class);
 
     private final OrderRepositoryPort orderRepository;
     private final List<PaymentGatewayPort> gateways;
@@ -40,14 +44,17 @@ public class ConfirmPaymentUseCase implements ConfirmPaymentPort {
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
 
         PaymentGatewayPort gateway = resolveGateway(command);
+        log.info("Confirming payment for order {} via {}", orderId, command.paymentMethod());
         // Charge before opening a transaction: never hold a DB transaction open across a network call to an external gateway.
         PaymentGatewayResult result = gateway.charge(order.amount(), command.paymentToken());
 
         transactionPort.runInTransaction(() -> {
             if (result.success()) {
                 order.confirmPayment(command.paymentMethod());
+                log.info("Order {} confirmed via {}", orderId, command.paymentMethod());
             } else {
                 order.recordPaymentFailure(command.paymentMethod(), result.failureReason());
+                log.warn("Order {} payment failed via {}: {}", orderId, command.paymentMethod(), result.failureReason());
             }
             orderRepository.save(order);
             order.pullDomainEvents().forEach(eventPublisher::publish);
