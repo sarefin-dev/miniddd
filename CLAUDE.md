@@ -15,7 +15,7 @@ outbox to Kafka, so downstream consumers stay payment-method agnostic.
 
 ## Commands
 
-Use the Maven Wrapper (`mvnw`/`mvnw.cmd`) — Maven is not required to be installed globally.
+Requires JDK 25. Use the Maven Wrapper (`mvnw`/`mvnw.cmd`) — Maven is not required to be installed globally.
 
 ```
 ./mvnw test                    # run all tests
@@ -25,6 +25,12 @@ Use the Maven Wrapper (`mvnw`/`mvnw.cmd`) — Maven is not required to be instal
 ./mvnw package -DskipTests     # build without running tests
 ./mvnw spring-boot:run          # run the app (needs Postgres on 5432 and Kafka on 9092, see below)
 ```
+
+The project targets `java.version 25` (see `pom.xml`). This requires Spring Boot **3.5.3+** — Spring Boot
+3.3.x cannot run on JDK 25 at all: Spring Framework's internally repackaged ASM copy (used for classpath
+component scanning) throws `Incompatible class format` on class file major version 69 (Java 25's bytecode
+version). 3.5.3's bundled Spring Framework 6.2.8 reads it fine. If you ever see that error, the parent POM
+version has drifted back down — bump it, don't work around it.
 
 On Windows, if Surefire fails with `IllegalArgumentException: 'other' has different root`, it means `%TEMP%`
 and the project checkout are on different drive letters — Surefire's classpath-jar mechanism can't relativize

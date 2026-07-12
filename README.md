@@ -40,7 +40,8 @@ choices (`TransactionPort` and the transactional outbox).
 
 ## Getting started
 
-Requires Java 21. Maven is not required to be installed — use the included wrapper.
+Requires JDK 25 (point `JAVA_HOME` at it if it's not your default JDK). Maven is not required to be installed
+— use the included wrapper.
 
 ```
 ./mvnw test        # run the domain test suite (no Spring context needed)
