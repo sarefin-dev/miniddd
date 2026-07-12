@@ -4,3 +4,5 @@ target/
 *.iml
 .vscode/
 TODO.md
+context/
+.commandcode/
