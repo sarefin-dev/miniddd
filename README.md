@@ -38,6 +38,92 @@ Dependencies only point inward: `adapter` → `port` + `domain`, `application` �
 `domain`, `domain` → nothing. See [CLAUDE.md](CLAUDE.md) for the reasoning behind the two non-obvious design
 choices (`TransactionPort` and the transactional outbox).
 
+### Dependency graph
+
+```mermaid
+graph TD
+    ADAPTER["<b>adapter</b><br/>OrderController · StripeAdapter · BkashAdapter<br/>OrderRepositoryAdapter · OutboxEventPublisherAdapter<br/>OutboxRelay · SpringTransactionAdapter<br/><i>only layer allowed to import Spring / JPA / Kafka</i>"]
+    PORT["<b>port</b><br/>in: CreateOrderPort, ConfirmPaymentPort<br/>out: OrderRepositoryPort, PaymentGatewayPort,<br/>EventPublisherPort, TransactionPort"]
+    APPLICATION["<b>application</b><br/>CreateOrderUseCase · ConfirmPaymentUseCase<br/><i>zero framework imports</i>"]
+    DOMAIN["<b>domain</b><br/>Order · Money · OrderId · OrderStatus · PaymentMethod<br/>OrderConfirmed · PaymentFailed<br/><i>imports nothing else in this project</i>"]
+
+    ADAPTER -->|implements / calls| PORT
+    APPLICATION -->|implements in·, calls out| PORT
+    PORT --> DOMAIN
+    APPLICATION --> DOMAIN
+    ADAPTER -.->|maps to/from| DOMAIN
+
+    classDef domain fill:#1b4332,color:#fff,stroke:#0d2818
+    classDef application fill:#2d6a4f,color:#fff,stroke:#1b4332
+    classDef port fill:#52b788,color:#000,stroke:#2d6a4f
+    classDef adapter fill:#b7e4c7,color:#000,stroke:#52b788
+    class DOMAIN domain
+    class APPLICATION application
+    class PORT port
+    class ADAPTER adapter
+```
+
+Solid arrows are "depends on / imports"; the dashed arrow is adapters mapping their own DTOs and JPA entities
+to/from domain types (allowed — it's still pointing inward). No arrow ever points from a lower box to a
+higher one.
+
+### Confirm-payment flow (transactional outbox)
+
+The part of this codebase most likely to surprise someone who's only seen `@Transactional` on a Spring
+service: the DB write and the Kafka publish are deliberately *not* in the same step.
+
+```mermaid
+sequenceDiagram
+    actor Client
+    participant Controller as OrderController
+    participant UseCase as ConfirmPaymentUseCase
+    participant Gateway as PaymentGatewayPort<br/>(Stripe/Bkash)
+    participant Tx as TransactionPort
+    participant Repo as OrderRepositoryPort
+    participant Outbox as EventPublisherPort<br/>(outbox)
+    participant DB as Postgres
+    participant Relay as OutboxRelay
+    participant Kafka as Kafka
+
+    Client->>Controller: POST /orders/{id}/confirm-payment
+    Controller->>UseCase: confirmPayment(command)
+    UseCase->>Repo: findById(orderId)
+    Repo->>DB: SELECT
+    DB-->>Repo: order row
+    Repo-->>UseCase: Order
+
+    Note over UseCase,Gateway: outside any DB transaction —<br/>never hold one open across a network call
+    UseCase->>Gateway: charge(amount, paymentToken)
+    Gateway-->>UseCase: PaymentGatewayResult
+
+    UseCase->>Tx: runInTransaction(work)
+    activate Tx
+    Note over UseCase,Outbox: work: order.confirmPayment(method), then save + publish
+    UseCase->>Repo: save(order)
+    Repo->>DB: UPDATE orders
+    UseCase->>Outbox: publish(OrderConfirmed)
+    Outbox->>DB: INSERT INTO outbox_event
+    deactivate Tx
+    Tx-->>UseCase: transaction committed
+
+    UseCase-->>Controller: void
+    Controller-->>Client: 202 Accepted
+
+    Note over Relay,Kafka: asynchronous, polls every 2s — fully decoupled from the request above
+    loop every 2s
+        Relay->>DB: SELECT unpublished outbox rows
+        DB-->>Relay: OrderConfirmed row
+        Relay->>Kafka: send("order.confirmed", payload)
+        Relay->>DB: UPDATE outbox_event SET published = true
+    end
+```
+
+Why the gateway call sits outside `runInTransaction`: an HTTP call to an external payment gateway can be slow
+or hang, and a database transaction should never be held open for the duration of a network call it doesn't
+control. Why the Kafka send isn't inline either: it decouples "the order is durably confirmed" from "Kafka
+happened to be reachable at that instant" — the outbox row is the source of truth, `OutboxRelay` just retries
+until it succeeds.
+
 ## Getting started
 
 Requires JDK 25 (point `JAVA_HOME` at it if it's not your default JDK). Maven is not required to be installed
