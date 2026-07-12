@@ -50,9 +50,18 @@ Requires JDK 25 (point `JAVA_HOME` at it if it's not your default JDK). Maven is
 
 Running the app (`./mvnw spring-boot:run`) additionally requires:
 - Postgres reachable at `localhost:5432`, database `miniddd`, user/password `miniddd`/`miniddd`
-- Kafka reachable at `localhost:9092`
+- Kafka reachable at `localhost:29092`
 
-(No docker-compose is included yet for spinning these up locally.)
+This repo has no docker-compose of its own; it's designed to run against a shared local infra stack (Postgres,
+Kafka, Redis, etc. in one compose file) rather than spinning up its own single-purpose containers. If you're
+using a similar shared stack, note two things this project does **not** provision for you:
+- The `miniddd` Postgres role and database aren't created by the shared Postgres image automatically — create
+  them once against the running container (`CREATE USER miniddd ...`, `CREATE DATABASE miniddd OWNER
+  miniddd;`). This won't survive that Postgres volume being recreated from scratch; re-run it if it ever gets
+  wiped.
+- If your Kafka container exposes separate internal (Docker-network) and external (host-facing) listeners,
+  make sure `localhost:29092` above actually maps to the one advertised for host access — an internal
+  listener advertised as e.g. `kafka:9092` won't resolve outside the Docker network.
 
 ## API
 
