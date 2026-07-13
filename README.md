@@ -134,23 +134,23 @@ Requires JDK 25 (point `JAVA_HOME` at it if it's not your default JDK). Maven is
 ./mvnw package      # build the jar
 ```
 
-Running the app (`./mvnw spring-boot:run`) additionally requires:
-- Postgres reachable at `localhost:5432`, database `miniddd`, user/password `miniddd`/`miniddd`
-- Kafka reachable at `localhost:29092`
+Running the app (`./mvnw spring-boot:run`) additionally requires Postgres and Kafka. The easiest way:
 
-These are just defaults — override any of them with the `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, or
-`KAFKA_BOOTSTRAP_SERVERS` environment variables without touching `application.yml`.
+```
+docker compose up -d
+```
 
-This repo has no docker-compose of its own; it's designed to run against a shared local infra stack (Postgres,
-Kafka, Redis, etc. in one compose file) rather than spinning up its own single-purpose containers. If you're
-using a similar shared stack, note two things this project does **not** provision for you:
-- The `miniddd` Postgres role and database aren't created by the shared Postgres image automatically — create
-  them once against the running container (`CREATE USER miniddd ...`, `CREATE DATABASE miniddd OWNER
-  miniddd;`). This won't survive that Postgres volume being recreated from scratch; re-run it if it ever gets
-  wiped.
-- If your Kafka container exposes separate internal (Docker-network) and external (host-facing) listeners,
-  make sure `localhost:29092` above actually maps to the one advertised for host access — an internal
-  listener advertised as e.g. `kafka:9092` won't resolve outside the Docker network.
+This starts Postgres on `localhost:5432` (database `miniddd`, user/password `miniddd`/`miniddd`, auto-created
+on first boot) and Kafka on `localhost:29092`, matching `application.yml`'s defaults exactly — no manual setup
+needed. `docker compose down` stops them; add `-v` to also drop the data volumes.
+
+All four values are overridable via the `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, or `KAFKA_BOOTSTRAP_SERVERS`
+environment variables without touching `application.yml` or `docker-compose.yml` — useful if you're running
+this against a different Postgres/Kafka (e.g. a shared infra stack you already have up) instead of the bundled
+compose file. In that case, watch for the same two gotchas any Postgres/Kafka pairing has: the target database
+and role need to actually exist (the bundled compose creates them for you via `POSTGRES_DB`/`POSTGRES_USER`
+env vars; a shared instance might not), and if Kafka exposes separate internal/external listeners, make sure
+the bootstrap address you point at is the one advertised for host access, not the Docker-internal one.
 
 ## API
 

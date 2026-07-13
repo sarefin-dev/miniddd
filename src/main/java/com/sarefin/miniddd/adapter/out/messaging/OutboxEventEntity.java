@@ -3,7 +3,6 @@ package com.sarefin.miniddd.adapter.out.messaging;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
@@ -24,8 +23,10 @@ public class OutboxEventEntity {
     @Column(nullable = false)
     private String eventType;
 
-    @Lob
-    @Column(nullable = false)
+    // Plain text column, deliberately not @Lob: Postgres large objects are transaction-scoped, and this column
+    // is read by OutboxRelay after its own read transaction has already closed (see OutboxRelay's per-event
+    // commit design). A JSON event payload doesn't need true LOB semantics anyway.
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String payload;
 
     @Column(nullable = false)

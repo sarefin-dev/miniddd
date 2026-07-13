@@ -38,10 +38,18 @@ paths across drive roots. Point `TEMP`/`TMP` at a folder on the same drive as th
 invocation and re-run.
 
 Local infra the app expects at runtime (see `src/main/resources/application.yml`): Postgres at
-`localhost:5432/miniddd` (user/password `miniddd`/`miniddd`) and Kafka at `localhost:29092`. Nothing in the repo
-currently provisions these (no docker-compose yet) — spin them up separately, or ask before adding one.
-All four values (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `KAFKA_BOOTSTRAP_SERVERS`) can be overridden via
-environment variables; the defaults above are what's used when they're unset.
+`localhost:5432/miniddd` (user/password `miniddd`/`miniddd`) and Kafka at `localhost:29092`. `docker compose up
+-d` (repo root) provisions both, including auto-creating the `miniddd` Postgres role/database on first boot —
+no manual setup step. All four values (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `KAFKA_BOOTSTRAP_SERVERS`) can
+be overridden via environment variables if you're pointing at different infra instead.
+
+Kafka in `docker-compose.yml` runs `apache/kafka:latest` in KRaft mode (no Zookeeper) with two listeners:
+`PLAINTEXT` for other containers on the same Docker network (`kafka:9092`) and `EXTERNAL` for host access
+(`localhost:29092`) — the split matters because a listener advertised only as `kafka:9092` doesn't resolve
+outside the Docker network. Its healthcheck calls `/opt/kafka/bin/kafka-broker-api-versions.sh` by full path
+deliberately: that image doesn't put `/opt/kafka/bin` on `PATH`, so the bare script name silently fails the
+healthcheck (container still works — `depends_on: condition: service_healthy` just never turns true) if you
+copy this env block elsewhere and simplify the healthcheck without noticing.
 
 ## Architecture: the dependency rule
 
@@ -91,6 +99,13 @@ Each row is sent and marked published individually: `KafkaTemplate.send()` retur
 on it (`.get(5, TimeUnit.SECONDS)`) before saving `published = true` — if that were skipped, a transaction could
 commit the "published" flag before the send actually reached the broker, permanently losing the event on a
 Kafka outage. On a send failure the row is left `published = false` and retried on the next poll.
+
+This per-event design is also why `OutboxEventEntity.payload` is a plain `TEXT` column and deliberately not
+`@Lob`: `findByPublishedFalseOrderByOccurredOnAsc()` returns from its own (short) read transaction before
+`getPayload()` is ever called in the loop, and Postgres large objects can only be streamed inside the
+transaction that read them — reading one afterward throws `Large Objects may not be used in auto-commit
+mode`. If you're tempted to add `@Lob` back for a "properly typed" large payload, don't, without first moving
+the payload read back inside a transaction.
 
 This is why `ConfirmPaymentUseCase.confirmPayment()` calls the payment gateway *before* opening the
 transaction: an external HTTP call to Stripe/bKash must never happen while a DB transaction is held open.
